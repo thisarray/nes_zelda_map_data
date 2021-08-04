@@ -641,7 +641,8 @@ const ANIMRATE = 0.15; // how many seconds each frame of link's walking animatio
 const FPS = 30;
 
 WIDTH = ROOM_WIDTH * WINDOW_MAGNIFICATION;
-HEIGHT = (ROOM_HEIGHT - 8) * WINDOW_MAGNIFICATION; // subtract 8 because we don't show the bottom half of the bottom row
+// Use full ROOM_HEIGHT; otherwise, the purple background would show up while sliding
+HEIGHT = ROOM_HEIGHT * WINDOW_MAGNIFICATION;
 TITLE = 'NES Zelda Walking Tour';
 
 /*
@@ -725,9 +726,16 @@ function drawRoom(leftPixel, topPixel, mapData, tileMap) {
   }
 }
 
-var cameraLeft, cameraTop, linkLeft, linkTop, mapData, tileMap;
+const State = Object.freeze({
+  SLIDE: 1,
+  PLAY: 2
+});
+
+var state, cameraLeft, cameraTop, linkLeft, linkTop, mapData, tileMap, rooms;
 
 function reset() {
+  state = State.PLAY;
+
   cameraLeft = ROOM_WIDTH * 7;
   cameraTop = ROOM_HEIGHT * 7; // Where on the map the left, top of the camera is. Starts at the (7, 7) room.
   linkLeft = cameraLeft + ((7 * 16) + 8);
@@ -735,16 +743,87 @@ function reset() {
 
   mapData = loadMapData(document.querySelector('#mapdata').textContent);
   tileMap = loadOverworldTiles();
+
+  rooms = [];
+}
+
+function slideRoomAnimation(slideDirection, mapData, tileMap) {
+  let duration = 0,
+      oldRoom, newRoom;
+
+  drawRoom(cameraLeft, cameraTop, mapData, tileMap);
+  oldRoom = screen.getSurface();
+  oldRoom.topleft = [0, 0];
+
+  // get the pygame Surface object of the room link is moving into
+  // (and adjust link's position a little bit towards the new room)
+  if (slideDirection === UP) {
+    oldRoom.target = [0, -ROOM_HEIGHT * WINDOW_MAGNIFICATION];
+    cameraTop += ROOM_HEIGHT;
+    drawRoom(cameraLeft, cameraTop, mapData, tileMap);
+    newRoom = screen.getSurface();
+    newRoom.topleft = [0, ROOM_HEIGHT * WINDOW_MAGNIFICATION];
+    duration = ROOM_HEIGHT / FPS;
+  }
+  if (slideDirection === DOWN) {
+    oldRoom.target = [0, ROOM_HEIGHT * WINDOW_MAGNIFICATION];
+    cameraTop -= ROOM_HEIGHT;
+    drawRoom(cameraLeft, cameraTop, mapData, tileMap);
+    newRoom = screen.getSurface();
+    newRoom.topleft = [0, -ROOM_HEIGHT * WINDOW_MAGNIFICATION];
+    duration = ROOM_HEIGHT / FPS;
+  }
+  if (slideDirection === LEFT) {
+    oldRoom.target = [-ROOM_WIDTH * WINDOW_MAGNIFICATION, 0];
+    cameraLeft += ROOM_WIDTH;
+    drawRoom(cameraLeft, cameraTop, mapData, tileMap);
+    newRoom = screen.getSurface();
+    newRoom.topleft = [ROOM_WIDTH * WINDOW_MAGNIFICATION, 0];
+    duration = ROOM_WIDTH / FPS;
+  }
+  if (slideDirection === RIGHT) {
+    oldRoom.target = [ROOM_WIDTH * WINDOW_MAGNIFICATION, 0];
+    cameraLeft -= ROOM_WIDTH;
+    drawRoom(cameraLeft, cameraTop, mapData, tileMap);
+    newRoom = screen.getSurface();
+    newRoom.topleft = [-ROOM_WIDTH * WINDOW_MAGNIFICATION, 0];
+    duration = ROOM_WIDTH / FPS;
+  }
+
+  state = State.SLIDE;
+  oldRoom.animation = animate(oldRoom, duration, {topleft: oldRoom.target}, 'linear');
+  newRoom.animation = animate(newRoom, duration, {topleft: [0, 0]}, 'linear');
+  rooms = [oldRoom, newRoom];
 }
 
 function draw() {
   screen.fill([255, 0, 255]); // this purple will show up really bright to point out any undrawn areas, but if everything is working you should never see it
 
-  // draw the current room to the window
-  drawRoom(cameraLeft, cameraTop, mapData, tileMap);
+  if (state === State.SLIDE) {
+    for (let room of rooms) {
+      screen.blit(room, room.topleft);
+    }
+  }
+  else if (state === State.PLAY) {
+    // draw the current room to the window
+    drawRoom(cameraLeft, cameraTop, mapData, tileMap);
+  }
+}
+
+function update(dt) {
+  if (state === State.SLIDE) {
+    if (rooms.every(r => r.animation.done)) {
+      state = State.PLAY;
+      rooms = [];
+    }
+  }
 }
 
 function on_key_down(key, mod, unicode) {
+  if (state !== State.PLAY) {
+    return;
+  }
+
   let leftKeyPressed = false,
       rightKeyPressed = false,
       upKeyPressed = false,
@@ -769,16 +848,16 @@ function on_key_down(key, mod, unicode) {
   }
 
   if (leftKeyPressed && (cameraLeft > 0)) {
-    cameraLeft -= ROOM_WIDTH;
+    slideRoomAnimation(RIGHT, mapData, tileMap);
   }
   else if (rightKeyPressed && (cameraLeft < (WORLD_MAP_WIDTH - ROOM_WIDTH))) {
-    cameraLeft += ROOM_WIDTH;
+    slideRoomAnimation(LEFT, mapData, tileMap);
   }
   else if (upKeyPressed && (cameraTop > 0)) {
-    cameraTop -= ROOM_HEIGHT;
+    slideRoomAnimation(DOWN, mapData, tileMap);
   }
   else if (downKeyPressed && (cameraTop < (WORLD_MAP_HEIGHT - ROOM_HEIGHT))) {
-    cameraTop += ROOM_HEIGHT;
+    slideRoomAnimation(UP, mapData, tileMap);
   }
 }
 
