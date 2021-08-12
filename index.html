@@ -112,6 +112,14 @@ body {
 
 <body>
 <section id="imageLoader" class="hidden">
+  <img class="hidden" src="images/link_down1.png" alt="link_down1" data-name="link_down1">
+  <img class="hidden" src="images/link_down2.png" alt="link_down2" data-name="link_down2">
+  <img class="hidden" src="images/link_left1.png" alt="link_left1" data-name="link_left1">
+  <img class="hidden" src="images/link_left2.png" alt="link_left2" data-name="link_left2">
+  <img class="hidden" src="images/link_right1.png" alt="link_right1" data-name="link_right1">
+  <img class="hidden" src="images/link_right2.png" alt="link_right2" data-name="link_right2">
+  <img class="hidden" src="images/link_up1.png" alt="link_up1" data-name="link_up1">
+  <img class="hidden" src="images/link_up2.png" alt="link_up2" data-name="link_up2">
   <img class="hidden" src="images/overworldtiles.png" alt="overworldtiles" data-name="overworldtiles">
 </section>
 
@@ -726,27 +734,6 @@ function drawRoom(leftPixel, topPixel, mapData, tileMap) {
   }
 }
 
-const State = Object.freeze({
-  SLIDE: 1,
-  PLAY: 2
-});
-
-var state, cameraLeft, cameraTop, linkLeft, linkTop, mapData, tileMap, rooms;
-
-function reset() {
-  state = State.PLAY;
-
-  cameraLeft = ROOM_WIDTH * 7;
-  cameraTop = ROOM_HEIGHT * 7; // Where on the map the left, top of the camera is. Starts at the (7, 7) room.
-  linkLeft = cameraLeft + ((7 * 16) + 8);
-  linkTop = cameraTop + (5 * 16); // link's current (left, top) position in map pixels
-
-  mapData = loadMapData(document.querySelector('#mapdata').textContent);
-  tileMap = loadOverworldTiles();
-
-  rooms = [];
-}
-
 function slideRoomAnimation(slideDirection, mapData, tileMap) {
   let duration = 0,
       oldRoom, newRoom;
@@ -764,6 +751,7 @@ function slideRoomAnimation(slideDirection, mapData, tileMap) {
     newRoom = screen.getSurface();
     newRoom.topleft = [0, ROOM_HEIGHT * WINDOW_MAGNIFICATION];
     duration = ROOM_HEIGHT / FPS;
+    link.top += link.height;
   }
   if (slideDirection === DOWN) {
     oldRoom.target = [0, ROOM_HEIGHT * WINDOW_MAGNIFICATION];
@@ -772,6 +760,7 @@ function slideRoomAnimation(slideDirection, mapData, tileMap) {
     newRoom = screen.getSurface();
     newRoom.topleft = [0, -ROOM_HEIGHT * WINDOW_MAGNIFICATION];
     duration = ROOM_HEIGHT / FPS;
+    link.top -= link.height;
   }
   if (slideDirection === LEFT) {
     oldRoom.target = [-ROOM_WIDTH * WINDOW_MAGNIFICATION, 0];
@@ -780,6 +769,7 @@ function slideRoomAnimation(slideDirection, mapData, tileMap) {
     newRoom = screen.getSurface();
     newRoom.topleft = [ROOM_WIDTH * WINDOW_MAGNIFICATION, 0];
     duration = ROOM_WIDTH / FPS;
+    link.left += Math.floor(link.width / 2);
   }
   if (slideDirection === RIGHT) {
     oldRoom.target = [ROOM_WIDTH * WINDOW_MAGNIFICATION, 0];
@@ -788,6 +778,7 @@ function slideRoomAnimation(slideDirection, mapData, tileMap) {
     newRoom = screen.getSurface();
     newRoom.topleft = [-ROOM_WIDTH * WINDOW_MAGNIFICATION, 0];
     duration = ROOM_WIDTH / FPS;
+    link.left -= Math.floor(link.width / 2);
   }
 
   state = State.SLIDE;
@@ -796,10 +787,124 @@ function slideRoomAnimation(slideDirection, mapData, tileMap) {
   rooms = [oldRoom, newRoom];
 }
 
+const State = Object.freeze({
+  SLIDE: 1,
+  PLAY: 2
+});
+
+class Link extends Actor {
+  constructor() {
+    // Start Link facing UP
+    super('link_up1');
+    this.direction = UP;
+
+    this.frames = new Map([
+      [DOWN, ['link_down1', 'link_down2']],
+      [LEFT, ['link_left1', 'link_left2']],
+      [RIGHT, ['link_right1', 'link_right2']],
+      [UP, ['link_up1', 'link_up2']]
+    ]);
+
+    this.timer = 0;
+    this.index = 0;
+  }
+
+  /*
+   * Return link's location on the screen.
+   */
+  getScreenPos(cameraLeft, cameraTop) {
+    return [(this.left - cameraLeft) * WINDOW_MAGNIFICATION,
+            (this.top - cameraTop) * WINDOW_MAGNIFICATION];
+  }
+
+  /*
+   * Draw link on the screen.
+   */
+  draw(cameraLeft, cameraTop) {
+    let [screenLeft=0, screenTop=0] = this.getScreenPos(cameraLeft, cameraTop);
+    screen.blit(this.name, new Rect(screenLeft, screenTop, this.width * WINDOW_MAGNIFICATION, this.height * WINDOW_MAGNIFICATION));
+  }
+
+  update(dt) {
+    let oldDirection = this.direction;
+
+    // actually move the position of the player
+    if (keyboard[keys.UP] || keyboard[keys.W]) {
+      this.y -= WALKRATE;
+      this.direction = UP;
+    }
+    else if (keyboard[keys.DOWN] || keyboard[keys.S]) {
+      this.y += WALKRATE;
+      this.direction = DOWN;
+    }
+    else if (keyboard[keys.LEFT] || keyboard[keys.A]) {
+      this.x -= WALKRATE;
+      this.direction = LEFT;
+    }
+    else if (keyboard[keys.RIGHT] || keyboard[keys.D]) {
+      this.x += WALKRATE;
+      this.direction = RIGHT;
+    }
+    else {
+      // If Link is not moving, then keep the same frame
+      this.direction = '';
+    }
+
+    if (this.top < 0) {
+      this.top = 0;
+    }
+    if ((this.top + this.height) > WORLD_MAP_HEIGHT) {
+      this.top = WORLD_MAP_HEIGHT - this.height;
+    }
+    if (this.left < 0) {
+      this.left = 0;
+    }
+    if ((this.left + this.width) > WORLD_MAP_WIDTH) {
+      this.left = WORLD_MAP_WIDTH - this.width;
+    }
+
+    if (this.frames.has(this.direction)) {
+      this.timer += dt;
+
+      if (this.direction !== oldDirection) {
+        // If Link changed directions, then reset
+        this.timer = 0;
+        this.index = 0;
+        this.name = this.frames.get(this.direction)[this.index];
+      }
+      else if (this.timer > ANIMRATE) {
+        this.timer = 0;
+        this.index += 1;
+        if (this.index > (this.frames.get(this.direction).length - 1)) {
+          this.index = 0;
+        }
+        this.name = this.frames.get(this.direction)[this.index];
+      }
+    }
+  }
+}
+
+var state, cameraLeft, cameraTop, link, mapData, tileMap, rooms;
+
+function reset() {
+  state = State.PLAY;
+
+  cameraLeft = ROOM_WIDTH * 7;
+  cameraTop = ROOM_HEIGHT * 7; // Where on the map the left, top of the camera is. Starts at the (7, 7) room.
+  link = new Link();
+  link.topleft = [cameraLeft + ((7 * 16) + 8), cameraTop + (5 * 16)]; // link's current (left, top) position in map pixels
+
+  mapData = loadMapData(document.querySelector('#mapdata').textContent);
+  tileMap = loadOverworldTiles();
+
+  rooms = [];
+}
+
 function draw() {
   screen.fill([255, 0, 255]); // this purple will show up really bright to point out any undrawn areas, but if everything is working you should never see it
 
   if (state === State.SLIDE) {
+    // perform the slide animation by drawing both room images on the window:
     for (let room of rooms) {
       screen.blit(room, room.topleft);
     }
@@ -807,6 +912,7 @@ function draw() {
   else if (state === State.PLAY) {
     // draw the current room to the window
     drawRoom(cameraLeft, cameraTop, mapData, tileMap);
+    link.draw(cameraLeft, cameraTop);
   }
 }
 
@@ -817,47 +923,23 @@ function update(dt) {
       rooms = [];
     }
   }
-}
+  else if (state === State.PLAY) {
+    link.update(dt);
 
-function on_key_down(key, mod, unicode) {
-  if (state !== State.PLAY) {
-    return;
-  }
-
-  let leftKeyPressed = false,
-      rightKeyPressed = false,
-      upKeyPressed = false,
-      downKeyPressed = false,
-      direction = UP;
-
-  if ((key === keys.UP) || (key === keys.W)) {
-    upKeyPressed = true;
-    direction = UP;
-  }
-  else if ((key === keys.DOWN) || (key === keys.S)) {
-    downKeyPressed = true;
-    direction = DOWN;
-  }
-  else if ((key === keys.LEFT) || (key === keys.A)) {
-    leftKeyPressed = true;
-    direction = LEFT;
-  }
-  else if ((key === keys.RIGHT) || (key === keys.D)) {
-    rightKeyPressed = true;
-    direction = RIGHT;
-  }
-
-  if (leftKeyPressed && (cameraLeft > 0)) {
-    slideRoomAnimation(RIGHT, mapData, tileMap);
-  }
-  else if (rightKeyPressed && (cameraLeft < (WORLD_MAP_WIDTH - ROOM_WIDTH))) {
-    slideRoomAnimation(LEFT, mapData, tileMap);
-  }
-  else if (upKeyPressed && (cameraTop > 0)) {
-    slideRoomAnimation(DOWN, mapData, tileMap);
-  }
-  else if (downKeyPressed && (cameraTop < (WORLD_MAP_HEIGHT - ROOM_HEIGHT))) {
-    slideRoomAnimation(UP, mapData, tileMap);
+    let [screenLeft=0, screenTop=0] = link.getScreenPos(cameraLeft, cameraTop);
+    // if link has moved off the edge of the screen
+    if (screenLeft < -Math.floor(link.width / 2)) {
+      slideRoomAnimation(RIGHT, mapData, tileMap);
+    }
+    if ((screenLeft + link.width) > (WIDTH - link.width + Math.floor(link.width / 2))) {
+      slideRoomAnimation(LEFT, mapData, tileMap);
+    }
+    if (screenTop < -Math.floor(link.height / 2)) {
+      slideRoomAnimation(DOWN, mapData, tileMap);
+    }
+    if ((screenTop + link.height) > (HEIGHT - link.height + Math.floor(link.height / 2))) {
+      slideRoomAnimation(UP, mapData, tileMap);
+    }
   }
 }
 
