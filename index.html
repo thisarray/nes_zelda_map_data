@@ -640,6 +640,18 @@ const ROOM_HEIGHT = 176; // this is the full room height, but only the top half 
 
 const WINDOW_MAGNIFICATION = 3; // each pixel will be enlarged by this many times before being drawn on the screen (must be an int)
 
+const BLOCKING_TILE_SET = new Set([
+  '01', '03', '04', '05', '07', '08', '09', '0a', '0b',
+  '12', '15', '16', '17', '19', '1b', '1c', '1d', '1e', '1f',
+  '21', '22', '28', '29', '2a', '2b', '2c', '2d', '2e', '2f',
+  '30', '31', '32', '33', '34', '35', '36', '37', '38', '39', '3c', '3d', '3e', '3f',
+  '41', '42', '43', '44', '45', '46', '47', '48', '49', '4a', '4b', '4d',
+  '50', '51', '52', '56', '57', '58',
+  '64', '65', '66', '6a', '6b', '6c',
+  '78', '79', '7a', '7e', '7f',
+  '80',
+  '90', '96', '9c']);
+
 const LEFT = 'left';
 const RIGHT = 'right';
 const UP = 'up';
@@ -787,6 +799,44 @@ function slideRoomAnimation(slideDirection, mapData, tileMap) {
   rooms = [oldRoom, newRoom];
 }
 
+/*
+ * Return true if the tile in direction from (leftPixel, topPixel) is blocking.
+ */
+function isBlocking(leftPixel, topPixel, direction, mapData) {
+  let tilex = Math.floor(leftPixel / 16),
+      tiley = Math.floor(topPixel / 16);
+
+  if (direction.length <= 0) {
+    return false;
+  }
+  if (direction === UP) {
+    tiley -= 1;
+  }
+  else if (direction === DOWN) {
+    tiley += 1;
+  }
+  else if (direction === LEFT) {
+    tilex -= 1;
+  }
+  else if (direction === RIGHT) {
+    tilex += 1;
+  }
+
+  if (tilex < 0) {
+    return true;
+  }
+  if (tilex >= mapData.length) {
+    return true;
+  }
+  if (tiley < 0) {
+    return true;
+  }
+  if (tiley >= mapData[tilex].length) {
+    return true;
+  }
+  return BLOCKING_TILE_SET.has(mapData[tilex][tiley]);
+}
+
 const State = Object.freeze({
   SLIDE: 1,
   PLAY: 2
@@ -825,42 +875,61 @@ class Link extends Actor {
     screen.blit(this.name, new Rect(screenLeft, screenTop, this.width * WINDOW_MAGNIFICATION, this.height * WINDOW_MAGNIFICATION));
   }
 
-  update(dt) {
-    let oldDirection = this.direction;
+  update(dt, mapData) {
+    let oldDirection = this.direction,
+        blocked = false,
+        speed = WALKRATE;
 
     // actually move the position of the player
+    // Since Link may not be lined up with the tiles, have to check both edges
     if (keyboard[keys.UP] || keyboard[keys.W]) {
-      this.y -= WALKRATE;
       this.direction = UP;
+      blocked = isBlocking(this.left + WALKRATE, this.top + WALKRATE, this.direction, mapData) || isBlocking(this.right - WALKRATE, this.top + WALKRATE, this.direction, mapData);
     }
     else if (keyboard[keys.DOWN] || keyboard[keys.S]) {
-      this.y += WALKRATE;
       this.direction = DOWN;
+      blocked = isBlocking(this.left + WALKRATE, this.bottom - WALKRATE, this.direction, mapData) || isBlocking(this.right - WALKRATE, this.bottom - WALKRATE, this.direction, mapData);
     }
     else if (keyboard[keys.LEFT] || keyboard[keys.A]) {
-      this.x -= WALKRATE;
       this.direction = LEFT;
+      blocked = isBlocking(this.left + WALKRATE, this.top + WALKRATE, this.direction, mapData) || isBlocking(this.left + WALKRATE, this.bottom - WALKRATE, this.direction, mapData);
     }
     else if (keyboard[keys.RIGHT] || keyboard[keys.D]) {
-      this.x += WALKRATE;
       this.direction = RIGHT;
+      blocked = isBlocking(this.right - WALKRATE, this.top + WALKRATE, this.direction, mapData) || isBlocking(this.right - WALKRATE, this.bottom - WALKRATE, this.direction, mapData);
     }
     else {
       // If Link is not moving, then keep the same frame
       this.direction = '';
     }
 
-    if (this.top < 0) {
-      this.top = 0;
+    if (blocked) {
+      // If Link is blocked, move just enough to line up with the tiles
+      if (this.direction === UP) {
+        speed = this.y % 16;
+      }
+      else if (this.direction === DOWN) {
+        speed = (16 - (this.y % 16)) % 16;
+      }
+      else if (this.direction === LEFT) {
+        speed = this.x % 16;
+      }
+      else if (this.direction === RIGHT) {
+        speed = (16 - (this.x % 16)) % 16;
+      }
     }
-    if ((this.top + this.height) > WORLD_MAP_HEIGHT) {
-      this.top = WORLD_MAP_HEIGHT - this.height;
+
+    if (this.direction === UP) {
+      this.y -= speed;
     }
-    if (this.left < 0) {
-      this.left = 0;
+    else if (this.direction === DOWN) {
+      this.y += speed;
     }
-    if ((this.left + this.width) > WORLD_MAP_WIDTH) {
-      this.left = WORLD_MAP_WIDTH - this.width;
+    else if (this.direction === LEFT) {
+      this.x -= speed;
+    }
+    else if (this.direction === RIGHT) {
+      this.x += speed;
     }
 
     if (this.frames.has(this.direction)) {
@@ -924,7 +993,7 @@ function update(dt) {
     }
   }
   else if (state === State.PLAY) {
-    link.update(dt);
+    link.update(dt, mapData);
 
     let [screenLeft=0, screenTop=0] = link.getScreenPos(cameraLeft, cameraTop);
     // if link has moved off the edge of the screen
